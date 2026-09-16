@@ -1,0 +1,7 @@
+[project]
+name = "moviepilot-plugin-bothostingrenew"
+dynamic = ["version"]
+requires-python = ">=3.12"
+dependencies = [
+    "pynacl>=1.5",
+]
