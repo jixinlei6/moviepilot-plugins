@@ -1,0 +1,49 @@
+{
+  "MyPlugin": {
+    "name": "我的插件",
+    "description": "一个最小可运行的 MoviePilot V3 插件。",
+    "labels": "示例",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "your-name",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.0.0": "首次发布。"
+    }
+  },
+  "BotHostingRenew": {
+    "name": "BotHosting自动续期",
+    "description": "自动打开 bot-hosting.net 账单页并点击 Renew 按钮续期容器，支持 Discord 重登与 GitHub Secrets 同步。",
+    "labels": "续期,自动化,浏览器",
+    "version": "1.2.1",
+    "icon": "cloud.png",
+    "author": "jixinlei",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.2.1": "适配两步确认流程：点击 Renew 后自动点击确认弹窗内的按钮完成续期。",
+      "v1.2.0": "适配站点改版：Renew 按钮从写死文案改为模式匹配（兼容 Renew for 4 days / Renew free plan 等变体），到期日期支持 ISO 格式。",
+      "v1.1.2": "Token 输入框改为明文显示，方便核对粘贴内容。",
+      "v1.1.1": "页面加载改为 domcontentloaded 并放宽至 60 秒，打开失败自动重试一次。",
+      "v1.1.0": "新增 DISCORD_TOKEN 自动重登换新 session_token；新增 GH_TOKEN 回写 GitHub Secrets；内置默认凭据。",
+      "v1.0.0": "首次发布：支持 session_token 登录、Turnstile 验证等待、冷却检测与续期历史。"
+    }
+  },
+  "NexusFormSignin": {
+    "name": "NexusPHP表单签到",
+    "description": "通用签到插件，适用于慕雪阁、Depth Studio 等 POST attendance.php 空表单型 NexusPHP 站点。",
+    "labels": "站点,签到",
+    "version": "1.1.2",
+    "icon": "signin.png",
+    "author": "jixinlei",
+    "level": 2,
+    "system_version": ">=3.0.0",
+    "history": {
+      "v1.1.2": "站点数据库读取改为绝对兜底，配置页加载不再受站点管理读取失败影响。",
+      "v1.1.1": "修正慕雪阁默认域名为完整的 pt.muxuege.org（签到页在 pt 子域），避免 404。",
+      "v1.1.0": "站点配置改为下拉多选，直接读取站点管理中的站点列表，默认勾选已实测站点。",
+      "v1.0.0": "首次发布：多站点配置（域名|名称），POST attendance.php 空表单签到，解析魔力值/连续天数/排名，按域名从站点管理读取 Cookie。已实测支持 pt.muxuege.org 与 dstudio.me。"
+    }
+  }
+}
