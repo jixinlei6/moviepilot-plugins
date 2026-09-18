@@ -58,7 +58,7 @@ class BotHostingRenew(_PluginBase):
     plugin_name = "BotHosting自动续期"
     plugin_desc = "自动打开 bot-hosting.net 账单页并点击 Renew 按钮续期容器，支持 Discord 重登与 GitHub Secrets 同步。"
     plugin_icon = "cloud.png"
-    plugin_version = "1.2.1"
+    plugin_version = "1.3.0"
     plugin_author = "jixinlei"
     author_url = "https://github.com/jixinlei6"
     plugin_config_prefix = "bothostingrenew_"
@@ -472,31 +472,47 @@ class BotHostingRenew(_PluginBase):
         return state
 
     @staticmethod
-    def _click_renew_button(page: Any, prefer_last: bool = False) -> bool:
-        """通过 JS 按模式查找并点击 Renew 按钮，返回是否点击成功。
-
-        匹配 "Renew for 4 days"、"Renew free plan" 等可点击文案，
-        排除冷却倒计时 "Renew in ..."。
-
-        站点的续期是两步操作：第一层按钮（如 "Renew free plan"）只负责
-        弹出确认框，确认框内的按钮（如 "Renew for 4 days"）才真正执行
-        续期。确认框渲染在 DOM 靠后位置，因此 prefer_last=True 时点击
-        最后一个匹配元素（用于第二步确认）。
+    def _find_renew_button(page: Any) -> dict[str, Any]:
         """
+        查找可点击的 Renew 按钮。
+
+        匹配 "Renew for 4 days"、"Renew free plan" 等文案，排除冷却倒计时
+        "Renew in ..." 与 disabled 按钮。确认框内的续期按钮（"Renew for 4 days"）
+        在 Turnstile 人机验证通过前是 disabled 的，因此需等它变成可点。
+
+        返回 {"found": bool, "disabled": bool}。
+        """
+        try:
+            return page.evaluate(
+                """() => {
+                    const els = [...document.querySelectorAll('button, a, [role="button"]')].filter(e => {
+                        const t = (e.textContent || '');
+                        return /\\bRenew\\b/i.test(t) && !/renew\\s+in/i.test(t);
+                    });
+                    if (!els.length) return { found: false, disabled: false };
+                    const btn = els[els.length - 1];
+                    return { found: true, disabled: !!btn.disabled };
+                }"""
+            )
+        except Exception as e:
+            logger.warning(f"查找 Renew 按钮失败: {e}")
+            return {"found": False, "disabled": False}
+
+    @staticmethod
+    def _click_renew_button(page: Any) -> bool:
+        """点击最后一个可点击的 Renew 按钮（确认弹窗内的按钮）。"""
         try:
             return bool(
                 page.evaluate(
-                    """(preferLast) => {
+                    """() => {
                         const els = [...document.querySelectorAll('button, a, [role="button"]')].filter(e => {
                             const t = (e.textContent || '');
-                            return /\\bRenew\\b/i.test(t) && !/renew\\s+in/i.test(t);
+                            return /\\bRenew\\b/i.test(t) && !/renew\\s+in/i.test(t) && !e.disabled;
                         });
                         if (!els.length) return false;
-                        const btn = preferLast ? els[els.length - 1] : els[0];
-                        btn.click();
+                        els[els.length - 1].click();
                         return true;
-                    }""",
-                    prefer_last,
+                    }"""
                 )
             )
         except Exception as e:
@@ -575,12 +591,21 @@ class BotHostingRenew(_PluginBase):
                         time.sleep(VERIFY_WAIT_SECONDS)
                         continue
 
-                    # 两步确认：第一层点击会弹出确认框，点击框内的确认按钮
-                    time.sleep(3)
-                    confirmed = self._click_renew_button(page, prefer_last=True)
-                    logger.info(
-                        "已点击确认按钮" if confirmed else "未发现确认弹窗，直接等待结果"
-                    )
+                    # 两步确认：第一层点击会弹出确认框。确认框内的按钮在
+                    # Turnstile 人机验证通过前是 disabled 的，需轮询等它变可点。
+                    confirm_clicked = False
+                    for _ in range(12):
+                        time.sleep(2)
+                        probe = self._find_renew_button(page)
+                        if probe["found"] and not probe["disabled"]:
+                            confirm_clicked = self._click_renew_button(page)
+                            if confirm_clicked:
+                                logger.info("Turnstile 已通过，已点击确认按钮")
+                            break
+                        if not probe["found"]:
+                            # 弹窗已关闭，说明可能已续期或被取消
+                            break
+                        logger.debug("等待 Turnstile 人机验证通过，确认按钮尚未可点")
 
                     # 点击后轮询等待按钮变为倒计时，即为续期成功
                     for _ in range(VERIFY_WAIT_SECONDS):
