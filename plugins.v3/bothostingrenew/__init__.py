@@ -58,7 +58,7 @@ class BotHostingRenew(_PluginBase):
     plugin_name = "BotHosting自动续期"
     plugin_desc = "自动打开 bot-hosting.net 账单页并点击 Renew 按钮续期容器，支持 Discord 重登与 GitHub Secrets 同步。"
     plugin_icon = "cloud.png"
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     plugin_author = "jixinlei"
     author_url = "https://github.com/jixinlei6"
     plugin_config_prefix = "bothostingrenew_"
@@ -353,7 +353,7 @@ class BotHostingRenew(_PluginBase):
             "gh_token": "",
             "gh_repo": DEFAULT_GH_REPO,
             "proxy": "",
- "headed": false
+            "headed": False,
         }
 
     def get_page(self) -> list[dict]:
