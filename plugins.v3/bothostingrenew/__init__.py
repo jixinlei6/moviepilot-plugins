@@ -58,7 +58,7 @@ class BotHostingRenew(_PluginBase):
     plugin_name = "BotHosting自动续期"
     plugin_desc = "自动打开 bot-hosting.net 账单页并点击 Renew 按钮续期容器，支持 Discord 重登与 GitHub Secrets 同步。"
     plugin_icon = "cloud.png"
-    plugin_version = "1.3.3"
+    plugin_version = "1.4.0"
     plugin_author = "jixinlei"
     author_url = "https://github.com/jixinlei6"
     plugin_config_prefix = "bothostingrenew_"
@@ -628,6 +628,13 @@ class BotHostingRenew(_PluginBase):
 
             # Turnstile 交互式验证可能出现在页面中，等待其自动通过
             for attempt in range(MAX_VERIFY_ATTEMPTS):
+                if attempt > 0:
+                    # 重试前刷新页面，重置弹窗与验证状态
+                    logger.info(f"第 {attempt + 1}/{MAX_VERIFY_ATTEMPTS} 次尝试前刷新页面")
+                    if not self._goto(page, BILLINGS_URL):
+                        time.sleep(VERIFY_WAIT_SECONDS)
+                        continue
+                    time.sleep(3)
                 content = page.content()
                 state = self._parse_state(content)
 
@@ -715,7 +722,11 @@ class BotHostingRenew(_PluginBase):
 
             return {
                 "success": False,
-                "message": "未能完成续期：Renew 按钮不可用或人机验证未通过",
+                "message": (
+                    "自动续期未成功（人机验证未通过）。请手动续期：打开 "
+                    f"{BILLINGS_URL} ，点击 \"Renew free plan\"，通过人机验证后"
+                    "点击 \"Renew for 4 days\"（10 秒完成）。配置干净代理后可恢复全自动。"
+                ),
                 "expiry": self._parse_state(page.content()).get("expiry"),
             }
 
