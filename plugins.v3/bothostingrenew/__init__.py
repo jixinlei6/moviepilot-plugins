@@ -58,7 +58,7 @@ class BotHostingRenew(_PluginBase):
     plugin_name = "BotHosting自动续期"
     plugin_desc = "自动打开 bot-hosting.net 账单页并点击 Renew 按钮续期容器，支持 Discord 重登与 GitHub Secrets 同步。"
     plugin_icon = "cloud.png"
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     plugin_author = "jixinlei"
     author_url = "https://github.com/jixinlei6"
     plugin_config_prefix = "bothostingrenew_"
@@ -499,6 +499,29 @@ class BotHostingRenew(_PluginBase):
             return {"found": False, "disabled": False}
 
     @staticmethod
+    def _click_turnstile(page: Any) -> str:
+        """
+        尝试真实点击页面中的 Turnstile 人机验证组件（点它的 iframe 中心）。
+
+        JS 无法操作跨域 iframe 内部，因此用 page.click 对 iframe 元素
+        发起真实鼠标点击。返回描述结果的字符串用于日志。
+        """
+        selectors = (
+            'iframe[src*="challenges.cloudflare.com"]',
+            'iframe[title*="Cloudflare"]',
+            'iframe[title*="人机"]',
+            '[class*="cf-turnstile"] iframe',
+            '[class*="turnstile"] iframe',
+        )
+        for selector in selectors:
+            try:
+                page.click(selector, timeout=4000)
+                return f"已点击 {selector}"
+            except Exception:
+                continue
+        return "未找到 Turnstile 组件"
+
+    @staticmethod
     def _click_renew_button(page: Any) -> bool:
         """点击最后一个可点击的 Renew 按钮（确认弹窗内的按钮）。"""
         try:
@@ -592,20 +615,32 @@ class BotHostingRenew(_PluginBase):
                         continue
 
                     # 两步确认：第一层点击会弹出确认框。确认框内的按钮在
-                    # Turnstile 人机验证通过前是 disabled 的，需轮询等它变可点。
+                    # Turnstile 人机验证通过前是 disabled 的：轮询等待，
+                    # 期间主动尝试点击 Turnstile 复选框帮助通过验证。
                     confirm_clicked = False
-                    for _ in range(12):
+                    turnstile_clicks = 0
+                    last_probe = {"found": False, "disabled": False}
+                    for wait_i in range(30):
                         time.sleep(2)
-                        probe = self._find_renew_button(page)
-                        if probe["found"] and not probe["disabled"]:
+                        last_probe = self._find_renew_button(page)
+                        if not last_probe["found"]:
+                            # 弹窗已关闭，说明可能已续期或被取消
+                            break
+                        if not last_probe["disabled"]:
                             confirm_clicked = self._click_renew_button(page)
                             if confirm_clicked:
                                 logger.info("Turnstile 已通过，已点击确认按钮")
                             break
-                        if not probe["found"]:
-                            # 弹窗已关闭，说明可能已续期或被取消
-                            break
-                        logger.debug("等待 Turnstile 人机验证通过，确认按钮尚未可点")
+                        # 确认按钮仍 disabled：在第 8/20/40 秒尝试点击 Turnstile
+                        if turnstile_clicks < 3 and wait_i in (4, 10, 20):
+                            turnstile_clicks += 1
+                            ts_result = self._click_turnstile(page)
+                            logger.info(
+                                f"尝试点击 Turnstile 人机验证 "
+                                f"({turnstile_clicks}/3): {ts_result}"
+                            )
+                        else:
+                            logger.debug("等待 Turnstile 通过，确认按钮尚未可点")
 
                     # 点击后轮询等待按钮变为倒计时，即为续期成功
                     for _ in range(VERIFY_WAIT_SECONDS):
@@ -628,6 +663,14 @@ class BotHostingRenew(_PluginBase):
                         f"等待 Turnstile 人机验证通过（{attempt + 1}/{MAX_VERIFY_ATTEMPTS}）"
                     )
                 time.sleep(VERIFY_WAIT_SECONDS)
+
+            # 保存失败时的页面快照，便于定位 Turnstile/按钮问题
+            try:
+                debug_path = self.get_data_path() / "debug_renew_failure.html"
+                debug_path.write_text(page.content(), encoding="utf-8")
+                logger.info(f"已保存失败页面快照: {debug_path}")
+            except Exception as debug_err:
+                logger.debug(f"保存失败快照异常: {debug_err}")
 
             return {
                 "success": False,
