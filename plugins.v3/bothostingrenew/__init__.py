@@ -58,7 +58,7 @@ class BotHostingRenew(_PluginBase):
     plugin_name = "BotHosting自动续期"
     plugin_desc = "自动打开 bot-hosting.net 账单页并点击 Renew 按钮续期容器，支持 Discord 重登与 GitHub Secrets 同步。"
     plugin_icon = "cloud.png"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "jixinlei"
     author_url = "https://github.com/jixinlei6"
     plugin_config_prefix = "bothostingrenew_"
@@ -75,6 +75,7 @@ class BotHostingRenew(_PluginBase):
     _gh_token = ""
     _gh_repo = DEFAULT_GH_REPO
     _proxy = ""
+    _headed = False
     _lock = threading.Lock()
 
     def init_plugin(self, config: dict | None = None) -> None:
@@ -90,6 +91,7 @@ class BotHostingRenew(_PluginBase):
         self._gh_token = str(config.get("gh_token") or "").strip()
         self._gh_repo = str(config.get("gh_repo") or DEFAULT_GH_REPO).strip()
         self._proxy = str(config.get("proxy") or "").strip()
+        self._headed = bool(config.get("headed", False))
 
         if config.get("onlyonce"):
             self.update_config(self._current_config(enabled=self._enabled))
@@ -109,6 +111,7 @@ class BotHostingRenew(_PluginBase):
             "gh_token": self._gh_token,
             "gh_repo": self._gh_repo,
             "proxy": self._proxy,
+            "headed": self._headed,
             "onlyonce": False,
         }
 
@@ -238,6 +241,19 @@ class BotHostingRenew(_PluginBase):
                                     }
                                 ],
                             },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "headed",
+                                            "label": "有头模式（Turnstile 过不了时开启）",
+                                        },
+                                    }
+                                ],
+                            },
                         ],
                     },
                     {
@@ -337,6 +353,7 @@ class BotHostingRenew(_PluginBase):
             "gh_token": "",
             "gh_repo": DEFAULT_GH_REPO,
             "proxy": "",
+ "headed": false
         }
 
     def get_page(self) -> list[dict]:
@@ -508,18 +525,40 @@ class BotHostingRenew(_PluginBase):
         """
         selectors = (
             'iframe[src*="challenges.cloudflare.com"]',
+            'iframe[src*="turnstile"]',
+            'iframe[src*="challenge"]',
             'iframe[title*="Cloudflare"]',
             'iframe[title*="人机"]',
-            '[class*="cf-turnstile"] iframe',
+            'iframe[src*="/cdn-cgi/"]',
+            '[class*="cf-turnstile"]',
             '[class*="turnstile"] iframe',
         )
         for selector in selectors:
             try:
-                page.click(selector, timeout=4000)
+                page.click(selector, timeout=3000)
                 return f"已点击 {selector}"
             except Exception:
                 continue
         return "未找到 Turnstile 组件"
+
+    @staticmethod
+    def _dump_iframes(page: Any) -> str:
+        """打印页面内全部 iframe 的 src/title/尺寸，用于诊断 Turnstile 渲染形态。"""
+        try:
+            info = page.evaluate(
+                """() => JSON.stringify({
+                    iframes: [...document.querySelectorAll('iframe')].map(f => ({
+                        src: (f.src || '').slice(0, 90),
+                        title: f.title || '',
+                        w: f.clientWidth, h: f.clientHeight
+                    })),
+                    turnstileDivs: [...document.querySelectorAll('[class*="turnstile"], [class*="challenge"]')]
+                        .map(d => (d.className || '').toString().slice(0, 60)).slice(0, 5)
+                })"""
+            )
+            return str(info)[:900]
+        except Exception as e:
+            return f"dump失败: {e}"
 
     @staticmethod
     def _click_renew_button(page: Any) -> bool:
@@ -575,7 +614,7 @@ class BotHostingRenew(_PluginBase):
         )
         launch_kwargs = {"proxy": self._proxy} if self._proxy else {}
 
-        with launch_browser_context(headless=True, **launch_kwargs) as context:
+        with launch_browser_context(headless=not self._headed, **launch_kwargs) as context:
             page = context.new_page()
             page.set_extra_http_headers({"cookie": cookie_header})
             page.set_default_timeout(PAGE_LOAD_TIMEOUT)
@@ -634,6 +673,8 @@ class BotHostingRenew(_PluginBase):
                         # 确认按钮仍 disabled：在第 8/20/40 秒尝试点击 Turnstile
                         if turnstile_clicks < 3 and wait_i in (4, 10, 20):
                             turnstile_clicks += 1
+                            if turnstile_clicks == 1:
+                                logger.info(f"页面 iframe 清单: {self._dump_iframes(page)}")
                             ts_result = self._click_turnstile(page)
                             logger.info(
                                 f"尝试点击 Turnstile 人机验证 "
@@ -745,7 +786,7 @@ class BotHostingRenew(_PluginBase):
             from app.sdk.browser import launch_browser_context
 
             launch_kwargs = {"proxy": self._proxy} if self._proxy else {}
-            with launch_browser_context(headless=True, **launch_kwargs) as context:
+            with launch_browser_context(headless=not self._headed, **launch_kwargs) as context:
                 page = context.new_page()
                 page.set_default_timeout(30000)
 
